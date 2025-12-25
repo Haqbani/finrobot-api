@@ -23,13 +23,13 @@ pandas-datareader>=0.10.0
 # === Data Processing ===
 pandas>=2.0.0
 numpy>=1.24.0
-scikit-learn>=1.6.1  # Upgraded - verified compatible with FinRobot
+scikit-learn>=1.6.1
 
 # === PDF & Documents ===
 reportlab>=4.0.0
 pypdf2>=3.0.0
 pypdf>=3.0.0
-marker-pdf  # Now compatible with scikit-learn 1.6.1+
+marker-pdf
 
 # === HTTP & Async ===
 requests>=2.28.0
@@ -42,7 +42,8 @@ beautifulsoup4>=4.12.0
 lxml>=4.9.0
 
 # === Finance & Charting ===
-mplfinance>=0.12.0
+# mplfinance only has beta versions, use latest beta
+mplfinance>=0.12.0b0
 matplotlib>=3.7.0
 
 # === Utilities ===
