@@ -1,29 +1,41 @@
 """
-FinRobot API Server - Full Featured (Railway Compatible)
+FinRobot API Server - FULL FEATURED
 AI-powered Equity Research and Financial Analysis
+All features from FinRobot (except marker-pdf due to dependency conflicts)
 """
 
 import os
 import json
+import io
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import finnhub
-import asyncio
 
 # Initialize FastAPI
 app = FastAPI(
     title="FinRobot API",
-    description="AI-powered Equity Research and Financial Analysis API with GPT-4",
-    version="2.0.0",
+    description="""
+    ## AI-powered Equity Research and Financial Analysis
+    
+    Full-featured API with:
+    - 📊 Real-time market data (Finnhub, Yahoo Finance)
+    - 🤖 AI-powered analysis (GPT-4)
+    - 📈 Technical analysis & charting
+    - 📰 News sentiment analysis
+    - 📋 Equity research reports
+    - 🔍 SEC filings access
+    - ⚖️ Multi-stock comparison
+    """,
+    version="3.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
 
-# CORS middleware
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,23 +45,31 @@ app.add_middleware(
 )
 
 # ============================================================================
-# Clients & Config
+# Clients
 # ============================================================================
 
 def get_finnhub_client():
-    """Get Finnhub client"""
     api_key = os.environ.get("FINNHUB_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="FINNHUB_API_KEY not configured")
     return finnhub.Client(api_key=api_key)
 
 def get_openai_client():
-    """Get OpenAI client"""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured. Required for AI features.")
     from openai import OpenAI
     return OpenAI(api_key=api_key)
+
+def get_sec_api():
+    api_key = os.environ.get("SEC_API_KEY")
+    if not api_key:
+        return None
+    try:
+        from sec_api import QueryApi
+        return QueryApi(api_key=api_key)
+    except:
+        return None
 
 # ============================================================================
 # Startup
@@ -57,103 +77,134 @@ def get_openai_client():
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize on startup"""
-    print("=" * 50)
-    print("FinRobot API v2.0 - Full Featured")
-    print("=" * 50)
+    print("=" * 60)
+    print("🚀 FinRobot API v3.0 - FULL FEATURED")
+    print("=" * 60)
     
-    keys = {
-        "FINNHUB_API_KEY": ("required", "Market data"),
-        "OPENAI_API_KEY": ("required for AI", "GPT-4 forecasting"),
-        "FMP_API_KEY": ("optional", "Extended financials"),
+    features = {
+        "FINNHUB_API_KEY": ("✓" if os.environ.get("FINNHUB_API_KEY") else "✗", "Market Data"),
+        "OPENAI_API_KEY": ("✓" if os.environ.get("OPENAI_API_KEY") else "✗", "AI Forecasting"),
+        "SEC_API_KEY": ("✓" if os.environ.get("SEC_API_KEY") else "○", "SEC Filings"),
+        "FMP_API_KEY": ("✓" if os.environ.get("FMP_API_KEY") else "○", "Extended Financials"),
     }
     
-    for key, (status, desc) in keys.items():
-        if os.environ.get(key):
-            print(f"✓ {key} - {desc}")
-        else:
-            symbol = "✗" if "required" in status else "○"
-            print(f"{symbol} {key} not set ({status}) - {desc}")
+    for key, (status, desc) in features.items():
+        print(f"  {status} {key}: {desc}")
     
-    print("=" * 50)
+    print("=" * 60)
 
 # ============================================================================
-# Request/Response Models
+# Models
 # ============================================================================
 
-class StockAnalysisRequest(BaseModel):
+class AnalysisRequest(BaseModel):
     symbol: str
-    analysis_type: str = "comprehensive"
 
-class AIForecastRequest(BaseModel):
+class ForecastRequest(BaseModel):
     symbol: str
     include_news: bool = True
+    include_technicals: bool = True
 
 class ReportRequest(BaseModel):
     symbol: str
     company_name: str
+    include_ai_analysis: bool = True
 
 class CompareRequest(BaseModel):
     symbols: List[str]
 
+class SECFilingRequest(BaseModel):
+    symbol: str
+    filing_type: str = "10-K"
+    limit: int = 5
+
+class SentimentRequest(BaseModel):
+    symbol: str
+    days: int = 14
+
 # ============================================================================
-# Health Endpoints
+# Health & Info
 # ============================================================================
 
 @app.get("/")
 async def root():
-    """Health check and API info"""
     return {
-        "status": "healthy",
         "service": "FinRobot API",
-        "version": "2.0.0",
+        "version": "3.0.0",
+        "status": "healthy",
         "features": {
-            "ai_forecasting": bool(os.environ.get("OPENAI_API_KEY")),
             "market_data": bool(os.environ.get("FINNHUB_API_KEY")),
+            "ai_forecasting": bool(os.environ.get("OPENAI_API_KEY")),
+            "sec_filings": bool(os.environ.get("SEC_API_KEY")),
         },
-        "docs": "/docs",
         "endpoints": {
-            "stock_profile": "GET /api/v1/stock/{symbol}/profile",
-            "stock_financials": "GET /api/v1/stock/{symbol}/financials",
-            "stock_news": "GET /api/v1/stock/{symbol}/news",
-            "stock_price": "GET /api/v1/stock/{symbol}/price",
-            "analyze": "POST /api/v1/analyze",
-            "ai_forecast": "POST /api/v1/forecast (GPT-4)",
-            "report": "POST /api/v1/report",
-            "compare": "POST /api/v1/compare"
-        }
+            "data": [
+                "GET /api/v1/stock/{symbol}/profile",
+                "GET /api/v1/stock/{symbol}/financials",
+                "GET /api/v1/stock/{symbol}/news",
+                "GET /api/v1/stock/{symbol}/price",
+                "GET /api/v1/stock/{symbol}/quote",
+            ],
+            "analysis": [
+                "POST /api/v1/analyze",
+                "POST /api/v1/forecast",
+                "POST /api/v1/sentiment",
+                "POST /api/v1/technicals",
+            ],
+            "reports": [
+                "POST /api/v1/report",
+                "POST /api/v1/report/pdf",
+            ],
+            "sec": [
+                "POST /api/v1/sec/filings",
+            ],
+            "tools": [
+                "POST /api/v1/compare",
+                "POST /api/v1/screen",
+            ]
+        },
+        "docs": "/docs"
     }
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 # ============================================================================
 # Stock Data Endpoints
 # ============================================================================
 
 @app.get("/api/v1/stock/{symbol}/profile")
-async def get_stock_profile(symbol: str):
-    """Get company profile"""
+async def get_profile(symbol: str):
+    """Get comprehensive company profile"""
     try:
         client = get_finnhub_client()
-        profile = client.company_profile2(symbol=symbol.upper())
+        symbol = symbol.upper()
         
+        profile = client.company_profile2(symbol=symbol)
         if not profile:
-            raise HTTPException(status_code=404, detail=f"No profile found for {symbol}")
+            raise HTTPException(status_code=404, detail=f"No profile for {symbol}")
+        
+        # Get additional data
+        peers = client.company_peers(symbol)
         
         return {
-            "symbol": symbol.upper(),
-            "name": profile.get("name"),
-            "industry": profile.get("finnhubIndustry"),
-            "market_cap": profile.get("marketCapitalization"),
-            "ipo_date": profile.get("ipo"),
-            "country": profile.get("country"),
-            "exchange": profile.get("exchange"),
-            "currency": profile.get("currency"),
-            "website": profile.get("weburl"),
-            "logo": profile.get("logo"),
-            "raw": profile,
+            "symbol": symbol,
+            "profile": {
+                "name": profile.get("name"),
+                "industry": profile.get("finnhubIndustry"),
+                "sector": profile.get("gsector"),
+                "market_cap": profile.get("marketCapitalization"),
+                "shares_outstanding": profile.get("shareOutstanding"),
+                "ipo_date": profile.get("ipo"),
+                "country": profile.get("country"),
+                "exchange": profile.get("exchange"),
+                "currency": profile.get("currency"),
+                "website": profile.get("weburl"),
+                "logo": profile.get("logo"),
+                "phone": profile.get("phone"),
+            },
+            "peers": peers[:10] if peers else [],
             "timestamp": datetime.now().isoformat()
         }
     except HTTPException:
@@ -162,27 +213,30 @@ async def get_stock_profile(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/stock/{symbol}/financials")
-async def get_stock_financials(symbol: str):
-    """Get detailed financial metrics"""
+async def get_financials(symbol: str):
+    """Get comprehensive financial metrics"""
     try:
         client = get_finnhub_client()
-        metrics = client.company_basic_financials(symbol.upper(), 'all')
+        symbol = symbol.upper()
         
+        metrics = client.company_basic_financials(symbol, 'all')
         if not metrics or 'metric' not in metrics:
-            raise HTTPException(status_code=404, detail=f"No financials found for {symbol}")
+            raise HTTPException(status_code=404, detail=f"No financials for {symbol}")
         
         m = metrics['metric']
         
         return {
-            "symbol": symbol.upper(),
+            "symbol": symbol,
             "valuation": {
+                "market_cap": m.get("marketCapitalization"),
+                "enterprise_value": m.get("enterpriseValue"),
                 "pe_ratio": m.get("peTTM"),
                 "forward_pe": m.get("forwardPE"),
+                "peg_ratio": m.get("pegTTM"),
                 "ps_ratio": m.get("psTTM"),
                 "pb_ratio": m.get("pbQuarterly"),
                 "ev_ebitda": m.get("evEbitdaTTM"),
-                "peg_ratio": m.get("pegTTM"),
-                "market_cap": m.get("marketCapitalization"),
+                "ev_revenue": m.get("evRevenueTTM"),
             },
             "profitability": {
                 "gross_margin": m.get("grossMarginTTM"),
@@ -191,12 +245,36 @@ async def get_stock_financials(symbol: str):
                 "roe": m.get("roeTTM"),
                 "roi": m.get("roiTTM"),
                 "roa": m.get("roaTTM"),
+                "roic": m.get("roicTTM"),
             },
             "growth": {
                 "revenue_growth_yoy": m.get("revenueGrowthTTMYoy"),
-                "eps_growth_yoy": m.get("epsGrowthTTMYoy"),
+                "revenue_growth_3y": m.get("revenueGrowth3Y"),
                 "revenue_growth_5y": m.get("revenueGrowth5Y"),
+                "eps_growth_yoy": m.get("epsGrowthTTMYoy"),
+                "eps_growth_3y": m.get("epsGrowth3Y"),
                 "eps_growth_5y": m.get("epsGrowth5Y"),
+            },
+            "liquidity": {
+                "current_ratio": m.get("currentRatioQuarterly"),
+                "quick_ratio": m.get("quickRatioQuarterly"),
+                "cash_ratio": m.get("cashRatio"),
+            },
+            "leverage": {
+                "debt_to_equity": m.get("totalDebt/totalEquityQuarterly"),
+                "debt_to_assets": m.get("totalDebtToTotalAsset"),
+                "interest_coverage": m.get("netInterestCoverageTTM"),
+            },
+            "per_share": {
+                "eps": m.get("epsTTM"),
+                "book_value": m.get("bookValuePerShareQuarterly"),
+                "cash_per_share": m.get("cashPerSharePerShareQuarterly"),
+                "revenue_per_share": m.get("revenuePerShareTTM"),
+            },
+            "dividends": {
+                "dividend_yield": m.get("dividendYieldIndicatedAnnual"),
+                "dividend_per_share": m.get("dividendPerShareAnnual"),
+                "payout_ratio": m.get("payoutRatioTTM"),
             },
             "risk": {
                 "beta": m.get("beta"),
@@ -204,12 +282,13 @@ async def get_stock_financials(symbol: str):
                 "52_week_low": m.get("52WeekLow"),
                 "52_week_high_date": m.get("52WeekHighDate"),
                 "52_week_low_date": m.get("52WeekLowDate"),
+                "10_day_avg_volume": m.get("10DayAverageTradingVolume"),
             },
             "performance": {
-                "ytd_return": m.get("yearToDatePriceReturnDaily"),
-                "52_week_return": m.get("52WeekPriceReturnDaily"),
                 "5_day_return": m.get("5DayPriceReturnDaily"),
                 "month_return": m.get("monthToDatePriceReturnDaily"),
+                "ytd_return": m.get("yearToDatePriceReturnDaily"),
+                "52_week_return": m.get("52WeekPriceReturnDaily"),
             },
             "timestamp": datetime.now().isoformat()
         }
@@ -219,70 +298,76 @@ async def get_stock_financials(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/stock/{symbol}/news")
-async def get_stock_news(symbol: str, days: int = 7):
+async def get_news(symbol: str, days: int = 7, limit: int = 20):
     """Get recent company news"""
     try:
         client = get_finnhub_client()
+        symbol = symbol.upper()
         
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
+        end = datetime.now()
+        start = end - timedelta(days=days)
         
         news = client.company_news(
-            symbol.upper(),
-            _from=start_date.strftime("%Y-%m-%d"),
-            to=end_date.strftime("%Y-%m-%d")
+            symbol,
+            _from=start.strftime("%Y-%m-%d"),
+            to=end.strftime("%Y-%m-%d")
         )
         
-        formatted_news = []
-        for item in news[:20]:
-            formatted_news.append({
+        formatted = []
+        for item in news[:limit]:
+            formatted.append({
                 "headline": item.get("headline"),
                 "summary": item.get("summary", "")[:500],
                 "source": item.get("source"),
                 "url": item.get("url"),
+                "image": item.get("image"),
                 "datetime": datetime.fromtimestamp(item.get("datetime", 0)).isoformat(),
                 "category": item.get("category"),
+                "related": item.get("related"),
             })
         
         return {
-            "symbol": symbol.upper(),
-            "news": formatted_news,
-            "count": len(formatted_news),
-            "period": f"Last {days} days",
+            "symbol": symbol,
+            "news": formatted,
+            "count": len(formatted),
+            "period_days": days,
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/stock/{symbol}/price")
-async def get_stock_price(symbol: str, period: str = "1mo"):
-    """Get stock price data"""
+async def get_price(symbol: str, period: str = "1mo"):
+    """Get price history"""
     try:
         import yfinance as yf
+        symbol = symbol.upper()
         
-        ticker = yf.Ticker(symbol.upper())
+        ticker = yf.Ticker(symbol)
         hist = ticker.history(period=period)
         
         if hist.empty:
-            raise HTTPException(status_code=404, detail=f"No price data found for {symbol}")
+            raise HTTPException(status_code=404, detail=f"No price data for {symbol}")
         
         current = float(hist['Close'].iloc[-1])
-        prev = float(hist['Close'].iloc[0])
-        change_pct = ((current - prev) / prev) * 100
+        open_price = float(hist['Close'].iloc[0])
+        change = ((current - open_price) / open_price) * 100
         
         info = ticker.info
         
         return {
-            "symbol": symbol.upper(),
-            "company_name": info.get("longName", symbol.upper()),
+            "symbol": symbol,
+            "company_name": info.get("longName", symbol),
             "current_price": round(current, 2),
-            "period_start_price": round(prev, 2),
-            "change_percent": round(change_pct, 2),
+            "change_percent": round(change, 2),
             "period_high": round(float(hist['High'].max()), 2),
             "period_low": round(float(hist['Low'].min()), 2),
+            "period_open": round(open_price, 2),
+            "volume": int(hist['Volume'].iloc[-1]),
             "avg_volume": int(hist['Volume'].mean()),
             "currency": info.get("currency", "USD"),
             "period": period,
+            "data_points": len(hist),
             "timestamp": datetime.now().isoformat()
         }
     except HTTPException:
@@ -290,88 +375,105 @@ async def get_stock_price(symbol: str, period: str = "1mo"):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/v1/stock/{symbol}/quote")
+async def get_quote(symbol: str):
+    """Get real-time quote"""
+    try:
+        client = get_finnhub_client()
+        symbol = symbol.upper()
+        
+        quote = client.quote(symbol)
+        
+        return {
+            "symbol": symbol,
+            "current_price": quote.get("c"),
+            "change": quote.get("d"),
+            "change_percent": quote.get("dp"),
+            "high": quote.get("h"),
+            "low": quote.get("l"),
+            "open": quote.get("o"),
+            "previous_close": quote.get("pc"),
+            "timestamp": datetime.fromtimestamp(quote.get("t", 0)).isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============================================================================
-# AI-Powered Analysis Endpoints
+# Analysis Endpoints
 # ============================================================================
 
 @app.post("/api/v1/analyze")
-async def analyze_stock(request: StockAnalysisRequest):
-    """Rule-based stock analysis (no AI required)"""
+async def analyze(request: AnalysisRequest):
+    """Rule-based stock analysis"""
     try:
         import yfinance as yf
-        
         symbol = request.symbol.upper()
-        client = get_finnhub_client()
         
-        # Get data
+        client = get_finnhub_client()
         metrics = client.company_basic_financials(symbol, 'all')
         m = metrics.get('metric', {}) if metrics else {}
         
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="3mo")
-        current_price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
+        price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
         
-        # Score calculation
+        # Scoring
         score = 0
         insights = []
         
+        # Valuation
         pe = m.get("peTTM") or 0
         if 0 < pe < 15:
             score += 3
-            insights.append(f"Attractive P/E: {pe:.1f}x (below 15)")
+            insights.append(f"✅ Attractive P/E: {pe:.1f}x")
         elif 0 < pe < 25:
-            score += 2
-            insights.append(f"Fair P/E: {pe:.1f}x")
+            score += 1
+            insights.append(f"➖ Fair P/E: {pe:.1f}x")
         elif pe > 50:
-            score -= 1
-            insights.append(f"High P/E: {pe:.1f}x (premium valuation)")
+            score -= 2
+            insights.append(f"⚠️ High P/E: {pe:.1f}x")
         
         peg = m.get("pegTTM") or 0
         if 0 < peg < 1:
             score += 2
-            insights.append(f"PEG {peg:.2f} < 1 (undervalued vs growth)")
-        
-        rev_growth = m.get("revenueGrowthTTMYoy") or 0
-        if rev_growth > 30:
-            score += 2
-            insights.append(f"Strong revenue growth: {rev_growth:.1f}%")
-        elif rev_growth > 10:
+            insights.append(f"✅ PEG < 1: {peg:.2f}")
+        elif 0 < peg < 2:
             score += 1
-            insights.append(f"Solid revenue growth: {rev_growth:.1f}%")
-        elif rev_growth < 0:
+        
+        # Growth
+        rev = m.get("revenueGrowthTTMYoy") or 0
+        if rev > 25:
+            score += 2
+            insights.append(f"✅ Strong revenue growth: {rev:.1f}%")
+        elif rev < 0:
             score -= 1
-            insights.append(f"Revenue declining: {rev_growth:.1f}%")
+            insights.append(f"⚠️ Revenue declining: {rev:.1f}%")
         
-        net_margin = m.get("netProfitMarginTTM") or 0
-        if net_margin > 20:
+        # Profitability
+        margin = m.get("netProfitMarginTTM") or 0
+        if margin > 20:
             score += 2
-            insights.append(f"High profitability: {net_margin:.1f}% margin")
-        elif net_margin > 10:
-            score += 1
+            insights.append(f"✅ High margin: {margin:.1f}%")
+        elif margin < 5:
+            score -= 1
         
         # Rating
-        if score >= 8:
+        if score >= 7:
             rating = "STRONG BUY"
-        elif score >= 5:
+        elif score >= 4:
             rating = "BUY"
-        elif score >= 2:
+        elif score >= 1:
             rating = "HOLD"
         else:
-            rating = "UNDERPERFORM"
+            rating = "SELL"
         
         return {
             "symbol": symbol,
             "rating": rating,
             "score": score,
-            "current_price": round(current_price, 2),
+            "price": round(price, 2),
             "insights": insights,
-            "metrics": {
-                "pe_ratio": pe,
-                "peg_ratio": peg,
-                "revenue_growth": rev_growth,
-                "net_margin": net_margin,
-                "beta": m.get("beta"),
-            },
+            "metrics": {"pe": pe, "peg": peg, "revenue_growth": rev, "net_margin": margin},
             "method": "rule_based",
             "timestamp": datetime.now().isoformat()
         }
@@ -379,155 +481,211 @@ async def analyze_stock(request: StockAnalysisRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/forecast")
-async def ai_forecast(request: AIForecastRequest):
-    """
-    🤖 AI-Powered Stock Forecast using GPT-4
-    
-    Analyzes financials, news, and market data to predict stock movement.
-    Requires OPENAI_API_KEY environment variable.
-    """
+async def forecast(request: ForecastRequest):
+    """🤖 AI-powered stock forecast using GPT-4"""
     try:
         import yfinance as yf
-        
         symbol = request.symbol.upper()
         
-        # Get OpenAI client
-        openai_client = get_openai_client()
-        finnhub_client = get_finnhub_client()
+        openai = get_openai_client()
+        finnhub = get_finnhub_client()
         
         # Gather data
-        profile = finnhub_client.company_profile2(symbol=symbol)
-        metrics = finnhub_client.company_basic_financials(symbol, 'all')
+        profile = finnhub.company_profile2(symbol=symbol)
+        metrics = finnhub.company_basic_financials(symbol, 'all')
         m = metrics.get('metric', {}) if metrics else {}
         
-        # Get news if requested
-        news_summary = ""
+        # News
+        news_text = ""
         if request.include_news:
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=14)
-            news = finnhub_client.company_news(
-                symbol,
-                _from=start_date.strftime("%Y-%m-%d"),
-                to=end_date.strftime("%Y-%m-%d")
-            )
+            end = datetime.now()
+            start = end - timedelta(days=14)
+            news = finnhub.company_news(symbol, _from=start.strftime("%Y-%m-%d"), to=end.strftime("%Y-%m-%d"))
             if news:
-                news_headlines = [n.get("headline", "") for n in news[:10]]
-                news_summary = "\n".join(f"- {h}" for h in news_headlines)
+                headlines = [n.get("headline", "") for n in news[:10]]
+                news_text = "\n".join(f"• {h}" for h in headlines)
         
-        # Get price data
+        # Price
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="1mo")
-        current_price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
+        price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
         
-        # Build prompt for GPT-4
-        prompt = f"""You are an expert financial analyst. Analyze the following data for {symbol} ({profile.get('name', 'Unknown Company')}) and provide:
-
-1. A brief analysis of positive developments (2-3 key factors)
-2. Potential concerns (2-3 key factors)
-3. A price movement prediction for next week (e.g., "up 2-3%" or "down 1-2%")
-4. A confidence level (low/medium/high)
-5. A summary recommendation
-
-COMPANY DATA:
-- Industry: {profile.get('finnhubIndustry', 'N/A')}
-- Market Cap: ${m.get('marketCapitalization', 0):.0f}M
-- Current Price: ${current_price:.2f}
-
-FINANCIAL METRICS:
-- P/E Ratio: {m.get('peTTM', 'N/A')}
-- PEG Ratio: {m.get('pegTTM', 'N/A')}
-- Revenue Growth YoY: {m.get('revenueGrowthTTMYoy', 'N/A')}%
-- EPS Growth YoY: {m.get('epsGrowthTTMYoy', 'N/A')}%
-- Net Margin: {m.get('netProfitMarginTTM', 'N/A')}%
-- ROE: {m.get('roeTTM', 'N/A')}
-- Beta: {m.get('beta', 'N/A')}
-- 52-Week High: ${m.get('52WeekHigh', 'N/A')}
-- 52-Week Low: ${m.get('52WeekLow', 'N/A')}
-- YTD Return: {m.get('yearToDatePriceReturnDaily', 'N/A')}%
-
-RECENT NEWS HEADLINES:
-{news_summary if news_summary else "No recent news available"}
-
-Provide your analysis in a structured JSON format with keys: positive_factors, concerns, prediction, confidence, recommendation, summary
+        # Technicals
+        tech_text = ""
+        if request.include_technicals and not hist.empty:
+            sma_20 = hist['Close'].rolling(20).mean().iloc[-1] if len(hist) >= 20 else None
+            rsi = calculate_rsi(hist['Close']) if len(hist) >= 14 else None
+            tech_text = f"""
+TECHNICALS:
+- 20-day SMA: ${sma_20:.2f if sma_20 else 'N/A'}
+- RSI (14): {rsi:.1f if rsi else 'N/A'}
+- Price vs SMA: {'Above' if sma_20 and price > sma_20 else 'Below' if sma_20 else 'N/A'}
 """
         
-        # Call GPT-4
-        response = openai_client.chat.completions.create(
+        prompt = f"""Analyze {symbol} ({profile.get('name', 'Unknown')}) and provide:
+1. 2-3 positive factors
+2. 2-3 concerns
+3. Price prediction for next week (e.g., "up 2-3%")
+4. Confidence level (low/medium/high)
+5. Brief recommendation
+
+DATA:
+Company: {profile.get('name')} | Industry: {profile.get('finnhubIndustry')}
+Price: ${price:.2f} | Market Cap: ${m.get('marketCapitalization', 0):.0f}M
+
+FINANCIALS:
+- P/E: {m.get('peTTM', 'N/A')} | PEG: {m.get('pegTTM', 'N/A')}
+- Revenue Growth: {m.get('revenueGrowthTTMYoy', 'N/A')}%
+- Net Margin: {m.get('netProfitMarginTTM', 'N/A')}%
+- ROE: {m.get('roeTTM', 'N/A')} | Beta: {m.get('beta', 'N/A')}
+- 52W High: ${m.get('52WeekHigh', 'N/A')} | Low: ${m.get('52WeekLow', 'N/A')}
+{tech_text}
+NEWS:
+{news_text if news_text else 'No recent news'}
+
+Respond in JSON: {{"positive": [], "concerns": [], "prediction": "", "confidence": "", "recommendation": ""}}"""
+
+        response = openai.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
-                {"role": "system", "content": "You are a professional equity research analyst. Provide analysis in valid JSON format only."},
+                {"role": "system", "content": "You are a senior equity analyst. Respond only with valid JSON."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
-            max_tokens=1000,
             response_format={"type": "json_object"}
         )
         
-        # Parse response
-        ai_analysis = json.loads(response.choices[0].message.content)
+        analysis = json.loads(response.choices[0].message.content)
         
         return {
             "symbol": symbol,
-            "company_name": profile.get("name"),
-            "current_price": round(current_price, 2),
-            "analysis": ai_analysis,
-            "data_used": {
+            "company": profile.get("name"),
+            "price": round(price, 2),
+            "forecast": analysis,
+            "data_sources": {
                 "financials": True,
-                "news_articles": len(news) if request.include_news and news else 0,
-                "price_history": "1 month"
+                "news": bool(news_text),
+                "technicals": request.include_technicals
             },
             "model": "gpt-4-turbo-preview",
-            "method": "ai_powered",
             "timestamp": datetime.now().isoformat()
         }
-        
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI Forecast error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/sentiment")
+async def sentiment_analysis(request: SentimentRequest):
+    """Analyze news sentiment using AI"""
+    try:
+        symbol = request.symbol.upper()
+        
+        openai = get_openai_client()
+        finnhub = get_finnhub_client()
+        
+        # Get news
+        end = datetime.now()
+        start = end - timedelta(days=request.days)
+        news = finnhub.company_news(symbol, _from=start.strftime("%Y-%m-%d"), to=end.strftime("%Y-%m-%d"))
+        
+        if not news:
+            return {"symbol": symbol, "sentiment": "neutral", "message": "No recent news found"}
+        
+        headlines = [n.get("headline", "") for n in news[:15]]
+        news_text = "\n".join(f"- {h}" for h in headlines)
+        
+        response = openai.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=[
+                {"role": "system", "content": "Analyze sentiment. Respond with JSON only."},
+                {"role": "user", "content": f"""Analyze sentiment for {symbol}:
+
+{news_text}
+
+Respond: {{"overall_sentiment": "bullish/bearish/neutral", "score": -1 to 1, "key_themes": [], "summary": ""}}"""}
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        
+        return {
+            "symbol": symbol,
+            "sentiment": result,
+            "articles_analyzed": len(headlines),
+            "period_days": request.days,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# Reports
+# ============================================================================
 
 @app.post("/api/v1/report")
 async def generate_report(request: ReportRequest):
-    """Generate equity research report"""
+    """Generate comprehensive equity research report"""
     try:
         import yfinance as yf
-        
         symbol = request.symbol.upper()
-        company_name = request.company_name
-        client = get_finnhub_client()
         
-        # Get data
-        profile = client.company_profile2(symbol=symbol)
-        metrics = client.company_basic_financials(symbol, 'all')
+        finnhub = get_finnhub_client()
+        
+        profile = finnhub.company_profile2(symbol=symbol)
+        metrics = finnhub.company_basic_financials(symbol, 'all')
         m = metrics.get('metric', {}) if metrics else {}
         
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="1y")
-        current_price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
+        price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
         
-        # Build report
-        report_text = f"""
-================================================================================
-{company_name} ({symbol})
+        # AI Analysis
+        ai_section = ""
+        if request.include_ai_analysis and os.environ.get("OPENAI_API_KEY"):
+            try:
+                forecast_req = ForecastRequest(symbol=symbol)
+                forecast_result = await forecast(forecast_req)
+                ai_section = f"""
+AI ANALYSIS (GPT-4)
+-------------------
+Prediction: {forecast_result['forecast'].get('prediction', 'N/A')}
+Confidence: {forecast_result['forecast'].get('confidence', 'N/A')}
+Recommendation: {forecast_result['forecast'].get('recommendation', 'N/A')}
+
+Positive Factors:
+{chr(10).join('• ' + p for p in forecast_result['forecast'].get('positive', []))}
+
+Concerns:
+{chr(10).join('• ' + c for c in forecast_result['forecast'].get('concerns', []))}
+"""
+            except:
+                ai_section = "\nAI Analysis: Not available\n"
+        
+        report = f"""
+{'='*70}
+{request.company_name} ({symbol})
 EQUITY RESEARCH REPORT
-{datetime.now().strftime("%Y-%m-%d")}
-================================================================================
+Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}
+{'='*70}
 
 EXECUTIVE SUMMARY
 -----------------
-Current Price: ${current_price:.2f}
+Current Price: ${price:.2f}
 Market Cap: ${m.get('marketCapitalization', 0):.0f}M
 Industry: {profile.get('finnhubIndustry', 'N/A')}
 Exchange: {profile.get('exchange', 'N/A')}
-
-VALUATION METRICS
------------------
+{ai_section}
+VALUATION
+---------
 P/E Ratio (TTM): {m.get('peTTM', 'N/A')}x
 Forward P/E: {m.get('forwardPE', 'N/A')}x
+PEG Ratio: {m.get('pegTTM', 'N/A')}
 P/S Ratio: {m.get('psTTM', 'N/A')}x
 P/B Ratio: {m.get('pbQuarterly', 'N/A')}x
 EV/EBITDA: {m.get('evEbitdaTTM', 'N/A')}x
-PEG Ratio: {m.get('pegTTM', 'N/A')}
 
 PROFITABILITY
 -------------
@@ -544,8 +702,8 @@ EPS Growth (YoY): {m.get('epsGrowthTTMYoy', 'N/A')}%
 5-Year Revenue CAGR: {m.get('revenueGrowth5Y', 'N/A')}%
 5-Year EPS CAGR: {m.get('epsGrowth5Y', 'N/A')}%
 
-RISK METRICS
-------------
+RISK
+----
 Beta: {m.get('beta', 'N/A')}
 52-Week High: ${m.get('52WeekHigh', 'N/A')}
 52-Week Low: ${m.get('52WeekLow', 'N/A')}
@@ -555,78 +713,51 @@ PERFORMANCE
 YTD Return: {m.get('yearToDatePriceReturnDaily', 'N/A')}%
 52-Week Return: {m.get('52WeekPriceReturnDaily', 'N/A')}%
 
-================================================================================
-DISCLAIMER: This report is for informational purposes only and does not 
-constitute investment advice. Past performance does not guarantee future results.
-================================================================================
+{'='*70}
+DISCLAIMER: For informational purposes only. Not investment advice.
+{'='*70}
 """
         
         return {
             "symbol": symbol,
-            "company_name": company_name,
-            "report_text": report_text,
-            "data": {
-                "current_price": round(current_price, 2),
-                "valuation": {
-                    "pe_ratio": m.get("peTTM"),
-                    "peg_ratio": m.get("pegTTM"),
-                    "ps_ratio": m.get("psTTM"),
-                },
-                "profitability": {
-                    "gross_margin": m.get("grossMarginTTM"),
-                    "net_margin": m.get("netProfitMarginTTM"),
-                    "roe": m.get("roeTTM"),
-                },
-                "growth": {
-                    "revenue_growth": m.get("revenueGrowthTTMYoy"),
-                    "eps_growth": m.get("epsGrowthTTMYoy"),
-                },
-                "risk": {
-                    "beta": m.get("beta"),
-                    "52_week_high": m.get("52WeekHigh"),
-                    "52_week_low": m.get("52WeekLow"),
-                }
-            },
+            "company_name": request.company_name,
+            "report": report,
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/compare")
-async def compare_stocks(request: CompareRequest):
+async def compare(request: CompareRequest):
     """Compare multiple stocks"""
     try:
         import yfinance as yf
+        finnhub = get_finnhub_client()
         
-        client = get_finnhub_client()
         results = []
-        
-        for symbol in request.symbols[:5]:
+        for sym in request.symbols[:10]:
             try:
-                sym = symbol.upper()
-                metrics = client.company_basic_financials(sym, 'all')
-                m = metrics.get('metric', {}) if metrics else {}
-                
-                ticker = yf.Ticker(sym)
-                hist = ticker.history(period="1mo")
+                s = sym.upper()
+                m = finnhub.company_basic_financials(s, 'all').get('metric', {})
+                ticker = yf.Ticker(s)
+                hist = ticker.history(period="5d")
                 price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
                 
                 results.append({
-                    "symbol": sym,
+                    "symbol": s,
                     "price": round(price, 2),
-                    "pe_ratio": m.get("peTTM"),
-                    "peg_ratio": m.get("pegTTM"),
+                    "pe": m.get("peTTM"),
+                    "peg": m.get("pegTTM"),
                     "revenue_growth": m.get("revenueGrowthTTMYoy"),
-                    "net_margin": m.get("netProfitMarginTTM"),
+                    "margin": m.get("netProfitMarginTTM"),
                     "roe": m.get("roeTTM"),
                     "beta": m.get("beta"),
                 })
-            except Exception as e:
-                results.append({"symbol": symbol.upper(), "error": str(e)})
+            except:
+                results.append({"symbol": sym.upper(), "error": "Failed"})
         
-        # Find best value (lowest positive PE)
-        valid = [r for r in results if r.get("pe_ratio") and r.get("pe_ratio") > 0]
-        valid.sort(key=lambda x: x.get("pe_ratio", 999))
+        valid = [r for r in results if r.get("pe") and r.get("pe") > 0]
+        valid.sort(key=lambda x: x.get("pe", 999))
         
         return {
             "comparison": results,
@@ -637,10 +768,55 @@ async def compare_stocks(request: CompareRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
+# SEC Filings
+# ============================================================================
+
+@app.post("/api/v1/sec/filings")
+async def get_sec_filings(request: SECFilingRequest):
+    """Get SEC filings for a company"""
+    try:
+        sec = get_sec_api()
+        if not sec:
+            raise HTTPException(status_code=400, detail="SEC_API_KEY not configured")
+        
+        query = {
+            "query": f'ticker:"{request.symbol.upper()}" AND formType:"{request.filing_type}"',
+            "from": "0",
+            "size": str(request.limit),
+            "sort": [{"filedAt": {"order": "desc"}}]
+        }
+        
+        filings = sec.get_filings(query)
+        
+        return {
+            "symbol": request.symbol.upper(),
+            "filing_type": request.filing_type,
+            "filings": filings.get("filings", []),
+            "total": filings.get("total", {}).get("value", 0),
+            "timestamp": datetime.now().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+def calculate_rsi(prices, period=14):
+    """Calculate RSI"""
+    delta = prices.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return float(100 - (100 / (1 + rs.iloc[-1])))
+
+# ============================================================================
 # Main
 # ============================================================================
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("api_server:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("api_server:app", host="0.0.0.0", port=port)
