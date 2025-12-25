@@ -1,58 +1,46 @@
-# FinRobot API - FULL AGENTS
-# PyTorch is installed separately in Dockerfile (CPU-only version)
+# FinRobot API - PINNED VERSIONS (from working local environment)
+# All versions tested and verified compatible
 
 # === Core API ===
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.5.0
-starlette>=0.36.0
+fastapi==0.109.0
+uvicorn==0.27.0
+pydantic==2.5.3
+starlette==0.36.3
 
-# === AI Agents (AutoGen) ===
-pyautogen>=0.2.19
+# === AI Agents ===
+pyautogen==0.9.0
+openai==1.12.0
 
-# === LLM Providers ===
-openai>=1.10.0
-langchain>=0.1.0
-langchain-community>=0.0.20
-tiktoken>=0.5.0
-
-# === Financial Data Sources ===
-finnhub-python>=2.4.0
-yfinance>=0.2.30
-sec-api>=1.0.0
-praw>=7.7.0
-pandas-datareader>=0.10.0
+# === Financial Data ===
+finnhub-python==2.4.19
+yfinance==0.2.36
 
 # === Data Processing ===
-pandas>=2.0.0
-numpy>=1.24.0
-scikit-learn>=1.6.1
+pandas==2.1.4
+numpy==1.26.4
+scikit-learn==1.5.0
 
-# === PDF & Documents ===
-marker-pdf>=1.0.0
-reportlab>=4.0.0
-pypdf2>=3.0.0
-pdfkit>=1.0.0
+# === Charting (pinned to avoid resolution) ===
+matplotlib==3.8.3
+mplfinance==0.12.10b0
 
-# === NLP & ML ===
-transformers>=4.35.0
-huggingface_hub>=0.20.0
-nltk>=3.8.0
-sentencepiece>=0.1.99
+# === PDF Processing (older compatible version) ===
+marker-pdf==0.2.15
+reportlab==4.0.9
+pypdf2==3.0.1
 
-# === HTTP & Async ===
-requests>=2.31.0
-aiohttp>=3.9.0
-httpx>=0.26.0
+# === HTTP ===
+requests==2.31.0
+aiohttp==3.9.1
+httpx==0.26.0
 
-# === Charting ===
-matplotlib>=3.7.0
-mplfinance>=0.12.0a0
+# === NLP ===
+beautifulsoup4==4.12.3
+lxml==5.1.0
+nltk==3.8.1
 
 # === Utilities ===
-python-dateutil>=2.8.0
-python-dotenv>=1.0.0
-tqdm>=4.65.0
-tenacity>=8.0.0
-beautifulsoup4>=4.12.0
-lxml>=5.0.0
+python-dateutil==2.8.2
+python-dotenv==1.0.0
+tqdm==4.66.1
+tenacity==8.2.3
