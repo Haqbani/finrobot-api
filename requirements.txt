@@ -1,43 +1,23 @@
+# FinRobot API - Minimal dependencies for Railway deployment
+# Core API
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+pydantic>=2.0.0
+
+# OpenAI & Autogen
+openai>=1.0.0
 pyautogen>=0.2.19
-ipython
-huggingface_hub
-matplotlib
 
-# financial libraries
-finnhub-python
-yfinance
-mplfinance
-backtrader
-sec_api
+# Data Sources
+finnhub-python>=2.4.0
+yfinance>=0.2.0
+pandas>=2.0.0
+numpy>=1.24.0
 
-# data handling
-numpy
-pandas
-pyPDF2
-reportlab
-pyautogen[retrievechat]
+# HTTP
+requests>=2.28.0
+aiohttp>=3.8.0
 
-# packaging
-setuptools>=41.4.0
-wheel>=0.33.6
-
-# historical data
-praw
-tushare
-pandas_datareader
-
-pdfkit==1.0.0
-marker-pdf
-pandas==2.0.3
-aiohttp==3.8.5
-langchain==0.1.20
-nltk==3.8.1
-numpy==1.26.4
-ratelimit==2.2.1
-Requests==2.31.0
-scikit_learn==1.5.0
-starlette==0.37.2
-tenacity==8.3.0
-tqdm==4.66.1
-typing_extensions==4.9.0
-unstructured==0.8.1
+# Utilities
+python-dateutil>=2.8.0
+python-dotenv>=1.0.0
